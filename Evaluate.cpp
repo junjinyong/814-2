@@ -1,15 +1,14 @@
 #include <vector>
 
-
 using namespace std;
-using arr = vector <vector <int>>;
 
+using Array = vector <vector <int>>;
 
 const int dx[4] = {1, 0, -1, 0};
 const int dy[4] = {0, 1, 0, -1};
 
 
-int evaluate(arr & matrix) {
+int evaluate(Array & matrix) {
     vector <bool> data (20000, false);
     int result;
 
@@ -52,7 +51,7 @@ int evaluate(arr & matrix) {
                         for(int n = 0; n < 4; ++n) {
                             const int x4 = x3 + dx[l];
                             const int y4 = y3 + dy[l];
-                            if(x3 < 0 || x4 >= 8 || y4 < 0 || y4 >= 14) {
+                            if(x4 < 0 || x4 >= 8 || y4 < 0 || y4 >= 14) {
                                 continue;
                             }
 

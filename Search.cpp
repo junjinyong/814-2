@@ -1,3 +1,4 @@
+#include <iostream>
 #include <thread>
 #include <mutex>
 #include <shared_mutex>
@@ -6,36 +7,64 @@
 #include "Random.cpp"
 
 using namespace std;
-using arr = vector <vector <int>>;
+using Array = vector <vector <int>>;
 
 typedef shared_mutex Lock;
 typedef unique_lock <Lock> WriteLock;
 typedef shared_lock <Lock> ReadLock;
 
 Lock myLock;
+mutex upgradeLock;
 
-arr solution (8, vector <int> (14));
+Array solution (8, vector <int> (14));
 
 
+int best = 0;
+double temperature = 3.0;
 
-
-int search() {
-    ReadLock r_lock(myLock);
-
-    int result, best = 0;
-
+void search() {
+    int result;
+    Array candidate;
+    
+    //upgradeLock.lock();
     while(true) {
-        arr candidate = solution;
-
+        ReadLock r_lock(myLock);
+        //upgradeLock.unlock();
+        
+        candidate = solution;
         const int x = random(8);
         const int y = random(14);
-        const int val = candidate[x][y];
-
         candidate[x][y] = random(10);
-
+        
         result = evaluate(candidate);
-
-        candidate[x][y] = val;
+        //upgradeLock.lock();
+        if(update(best, result, temperature)) {
+            temperature = temperature * 0.999;
+            break;
+        }
     }
+    
+    WriteLock w_lock(myLock);
+    //upgradeLock.unlock();
+    solution = candidate;
+    best = result;
+    if(rand() % 1000 == 0) {
+        cout << "New record(" << this_thread::get_id() << "): " << best << endl;
+    }
+    
+    if(false) {
+        for(int i = 0; i < 8; ++i) {
+            for(int j = 0; j < 14; ++j) {
+                printf("%3d", solution[i][j]);
+            }
+            printf("\n");
+        }
+        printf("\n");
+    }
+}
 
+void repeat() {
+    for(int i = 0; i < 10000; ++i) {
+        search();
+    }
 }

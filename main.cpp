@@ -3,13 +3,21 @@
 
 using namespace std;
 
-
-
 int main() {
-    cout << "number of logical processors: " << thread::hardware_concurrency() << endl;
-    cout << "thread id: " << this_thread::get_id() << endl;
+    const int num = 16;
     
-
+    cout << "number of logical processors: " << thread::hardware_concurrency() << endl;
+    cout << "number of threads: " << num << endl;
+    
+    vector <thread> threads (num);
+    
+    for(auto & th : threads) {
+        th = thread(repeat);
+    }
+    
+    for(auto & th : threads) {
+        th.join();
+    }
     
     return 0;
 }
