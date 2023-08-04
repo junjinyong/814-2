@@ -1,6 +1,6 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.22.3)
 project(18789_multithread)
 
 set(CMAKE_CXX_STANDARD 17)
 
-add_executable(18789_multithread main.cpp Search.cpp)
+add_executable(18789_multithread main.cpp Search.cpp Evaluate.cpp Random.cpp Update.cpp)
