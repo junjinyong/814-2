@@ -29,7 +29,7 @@ inline double random_unit() {
     return dist(generator());
 }
 
-inline bool update(int current, int candidate, double temperature) {
+inline bool update(double current, double candidate, double temperature) {
     if(candidate >= current) {
         return true;
     }

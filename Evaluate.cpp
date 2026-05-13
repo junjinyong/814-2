@@ -4,12 +4,58 @@ using namespace std;
 
 using Array = vector <vector <int>>;
 
+constexpr int evaluation_limit = 20000;
+constexpr int coverage_limit = 9999;
+constexpr int frontier_window = 256;
+
+struct Fitness {
+    int prefix_score = -1;
+    int frontier_hits = 0;
+    int cover_9999 = 0;
+};
+
 const int dx[8] = {1, 1, 1, 0, 0, -1, -1, -1};
 const int dy[8] = {1, 0, -1, 1, -1, 1, 0, -1};
 
+inline bool operator<(const Fitness & lhs, const Fitness & rhs) {
+    if(lhs.prefix_score != rhs.prefix_score) {
+        return lhs.prefix_score < rhs.prefix_score;
+    }
+    if(lhs.frontier_hits != rhs.frontier_hits) {
+        return lhs.frontier_hits < rhs.frontier_hits;
+    }
+    return lhs.cover_9999 < rhs.cover_9999;
+}
 
-int evaluate(const Array & matrix) {
-    vector <bool> data (20000, false);
+inline bool operator>(const Fitness & lhs, const Fitness & rhs) {
+    return rhs < lhs;
+}
+
+inline bool operator<=(const Fitness & lhs, const Fitness & rhs) {
+    return !(rhs < lhs);
+}
+
+inline bool operator>=(const Fitness & lhs, const Fitness & rhs) {
+    return !(lhs < rhs);
+}
+
+inline bool operator==(const Fitness & lhs, const Fitness & rhs) {
+    return lhs.prefix_score == rhs.prefix_score
+        && lhs.frontier_hits == rhs.frontier_hits
+        && lhs.cover_9999 == rhs.cover_9999;
+}
+
+inline double annealing_value(const Fitness & fitness) {
+    constexpr double frontier_scale = 1.0 / static_cast <double> (frontier_window + 1);
+    constexpr double coverage_scale = frontier_scale / static_cast <double> (coverage_limit + 1);
+
+    return static_cast <double> (fitness.prefix_score)
+        + static_cast <double> (fitness.frontier_hits) * frontier_scale
+        + static_cast <double> (fitness.cover_9999) * coverage_scale;
+}
+
+Fitness evaluate(const Array & matrix) {
+    vector <bool> data (evaluation_limit, false);
 
     for(int i = 0; i < 8; ++i) {
         for(int j = 0; j < 14; ++j) {
@@ -54,7 +100,7 @@ int evaluate(const Array & matrix) {
                             }
 
                             const int result4 = 10 * result3 + matrix[x4][y4];
-                            if(result4 < 20000) {
+                            if(result4 < evaluation_limit) {
                                 data[result4] = true;
                             }
                         }
@@ -64,10 +110,26 @@ int evaluate(const Array & matrix) {
         }
     }
 
-    int result = 1;
-    while(result < 20000 && data[result]) {
-        ++result;
+    Fitness fitness;
+
+    int first_missing = 1;
+    while(first_missing < evaluation_limit && data[first_missing]) {
+        ++first_missing;
+    }
+    fitness.prefix_score = first_missing - 1;
+
+    for(int value = 1; value <= coverage_limit; ++value) {
+        if(data[value]) {
+            ++fitness.cover_9999;
+        }
     }
 
-    return result - 1;
+    const int frontier_end = min(evaluation_limit - 1, fitness.prefix_score + frontier_window);
+    for(int value = fitness.prefix_score + 1; value <= frontier_end; ++value) {
+        if(data[value]) {
+            ++fitness.frontier_hits;
+        }
+    }
+
+    return fitness;
 }

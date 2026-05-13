@@ -20,7 +20,11 @@ int main() {
         th.join();
     }
 
-    cout << "final best score: " << best_score_snapshot() << endl;
+    const Fitness best_fitness = best_fitness_snapshot();
+    cout << "final best score: " << best_fitness.prefix_score << endl;
+    cout << "final frontier hits: " << best_fitness.frontier_hits
+         << ", cover_9999: " << best_fitness.cover_9999
+         << endl;
     print_board(best_solution_snapshot());
     
     return 0;

@@ -157,9 +157,18 @@ The corresponding readable number is the decimal integer represented by that dig
   - each thread now runs an independent local search chain with its own board, score, temperature, and RNG
   - the mutation operator is still a single-cell digit change
   - threads publish only strictly better global best solutions under a mutex
+- Stage 2 of the roadmap is implemented:
+  - `Evaluate.cpp` now returns a composite `Fitness`
+  - the current fitness fields are `prefix_score`, `frontier_hits`, and `cover_9999`
+  - `frontier_hits` currently counts readable integers in the next `256` values after the first missing integer
+  - fitness comparison is lexicographic in the order above
+  - simulated annealing acceptance uses a scalar embedding of that lexicographic order
 - The baseline search is currently a finite-run local simulated annealing style search with local reheating after stagnation.
 - `Random.cpp` now uses thread-local RNG state, which avoids the previous shared-generator race.
 - `main.cpp` currently prints the final best score and board after all worker threads finish.
+- A longer user-run of the stage 1 baseline on 10 threads reached a final best score of `2551`, and the printed global-best log remained monotone throughout the run.
+- A short stage 2 smoke run showed repeated global-best improvements with unchanged `prefix_score` but improved secondary metrics, confirming that the richer fitness is actively affecting search decisions.
+- A longer user-run of the stage 2 solver on 10 threads reached a final best score of `3565` with `frontier_hits=247` and `cover_9999=9571`, a substantial improvement over the stage 1 baseline.
 
 ## Open Questions To Track
 
