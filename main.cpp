@@ -19,6 +19,9 @@ int main() {
     for(auto & th : threads) {
         th.join();
     }
+
+    cout << "final best score: " << best_score_snapshot() << endl;
+    print_board(best_solution_snapshot());
     
     return 0;
 }

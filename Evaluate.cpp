@@ -8,7 +8,7 @@ const int dx[8] = {1, 1, 1, 0, 0, -1, -1, -1};
 const int dy[8] = {1, 0, -1, 1, -1, 1, 0, -1};
 
 
-int evaluate(Array & matrix) {
+int evaluate(const Array & matrix) {
     vector <bool> data (20000, false);
 
     for(int i = 0; i < 8; ++i) {

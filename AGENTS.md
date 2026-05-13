@@ -27,6 +27,8 @@ When working in this repository:
 5. Prefer concise, high-signal updates over long diaries. Preserve durable facts; avoid clutter from one-off command output.
 6. Do not overwrite or revert user changes unless explicitly instructed.
 7. Delete or rewrite stale notes when they stop being useful. Do not preserve document history for its own sake.
+8. Ask the user only about material decisions, ambiguous requirements, or major tradeoffs. Decide routine implementation details locally and move forward.
+9. Keep validation runs short by default. For long solver runs, either ask the user for permission first or ask the user to run the program and provide the resulting score/output.
 
 ## Recommended Loop
 
@@ -38,6 +40,31 @@ Use this loop whenever you work on the solver:
 4. Make the smallest useful change that advances the solver or improves understanding.
 5. Validate the change if feasible.
 6. Update `AGENTS.md` with new durable information.
+
+## Roadmap
+
+Planned staged upgrades for the solver. Each stage must leave behind a working solver, not a half-finished rewrite.
+
+1. Replace the current shared-state search with a trustworthy thread-local baseline:
+   - each thread keeps its own board, score, temperature, and RNG
+   - threads publish only improved global best solutions
+   - mutation remains simple, starting with one-cell edits
+2. Extend evaluation from a single raw score to a richer fitness:
+   - actual BOJ prefix score
+   - frontier coverage near the first missing integer
+   - broad coverage such as readable count within `1..9999`
+3. Add an elite archive:
+   - store a small set of strong boards
+   - use them as restart seeds instead of restarting from scratch
+4. Expand the move set:
+   - one-cell mutation
+   - swap mutation
+   - small patch mutation
+   - short local improvement after mutation
+5. Upgrade to an island-style memetic evolutionary solver:
+   - thread-local populations
+   - crossover plus mutation
+   - periodic elite migration between islands
 
 ## Repository Snapshot
 
@@ -122,14 +149,17 @@ The corresponding readable number is the decimal integer represented by that dig
 - This is not a conventional exact algorithm problem; the intended work is solver construction and search.
 - Because revisits are allowed, arbitrarily long digit strings can be generated in principle.
 - The challenge is to design a board whose induced language of path strings covers a long prefix of positive integers.
-- The current repository likely aims to use randomized local search or simulated annealing, based on file names and current code structure.
 - On 2026-05-13, `Evaluate.cpp` was corrected to use 8-direction adjacency instead of 4-direction adjacency.
 - The same evaluator fix also removed obvious copy-paste bugs in deeper path expansion and changed the return value to the actual BOJ score `X`, not the first missing integer itself.
 - The current evaluator enumerates path lengths 1 through 5 and stores readable integers below `20000`.
 - For the pass threshold `8140`, this evaluator is effectively exact with respect to digit length, because every relevant target integer has at most 4 digits.
-- A user run after the evaluator fix reached about `3400` points within a few minutes on 16 threads, so the current search skeleton is not hopeless even in its rough state.
-- However, the current multithreaded update logic in `Search.cpp` does not preserve a monotone global best. Threads can evaluate from an old snapshot and later overwrite a better shared solution with a worse one.
-- Evidence for that bug is visible in the log itself: printed "New record" values sometimes decrease after a larger value has already appeared.
+- Stage 1 of the roadmap is implemented:
+  - each thread now runs an independent local search chain with its own board, score, temperature, and RNG
+  - the mutation operator is still a single-cell digit change
+  - threads publish only strictly better global best solutions under a mutex
+- The baseline search is currently a finite-run local simulated annealing style search with local reheating after stagnation.
+- `Random.cpp` now uses thread-local RNG state, which avoids the previous shared-generator race.
+- `main.cpp` currently prints the final best score and board after all worker threads finish.
 
 ## Open Questions To Track
 
