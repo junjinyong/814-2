@@ -4,12 +4,13 @@
 using namespace std;
 
 int main() {
-    const int num = 16;
+    const unsigned int num_logical_processors = thread::hardware_concurrency();
+    const unsigned int num_threads = 10; // num_logical_processors >> 1;
     
-    cout << "number of logical processors: " << thread::hardware_concurrency() << endl;
-    cout << "number of threads: " << num << endl;
+    cout << "number of logical processors: " << num_logical_processors << endl;
+    cout << "number of threads: " << num_threads << endl;
     
-    vector <thread> threads (num);
+    vector <thread> threads (num_threads);
     
     for(auto & th : threads) {
         th = thread(repeat);
