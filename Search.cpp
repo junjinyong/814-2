@@ -21,8 +21,11 @@ constexpr double initial_temperature = 0.20;
 constexpr double cooling_rate = 0.9995;
 constexpr double minimum_temperature = 0.002;
 constexpr int elite_archive_capacity = 16;
-constexpr int elite_restart_choices = 4;
-constexpr int elite_restart_mutations = 4;
+constexpr int elite_restart_choices = 12;
+constexpr int elite_restart_mutations = 6;
+constexpr int random_restart_percent = 20;
+constexpr int local_improvement_rounds = 1;
+constexpr int local_improvement_probes = 2;
 
 struct EliteEntry {
     Array board;
@@ -58,6 +61,104 @@ void mutate_one_cell(Array & board) {
     board[x][y] = new_digit;
 }
 
+void mutate_swap_cells(Array & board) {
+    for(int attempt = 0; attempt < 8; ++attempt) {
+        const int x1 = random(rows);
+        const int y1 = random(cols);
+        const int x2 = random(rows);
+        const int y2 = random(cols);
+
+        if((x1 != x2 || y1 != y2) && board[x1][y1] != board[x2][y2]) {
+            swap(board[x1][y1], board[x2][y2]);
+            return;
+        }
+    }
+
+    mutate_one_cell(board);
+}
+
+void mutate_patch(Array & board) {
+    const int height = 1 + random(2);
+    const int width = 2 + random(2);
+    const int start_x = random(rows - height + 1);
+    const int start_y = random(cols - width + 1);
+
+    bool changed = false;
+    for(int dx = 0; dx < height; ++dx) {
+        for(int dy = 0; dy < width; ++dy) {
+            const int x = start_x + dx;
+            const int y = start_y + dy;
+            const int old_digit = board[x][y];
+            int new_digit = old_digit;
+
+            while(new_digit == old_digit) {
+                new_digit = random(digits);
+            }
+            board[x][y] = new_digit;
+            changed = true;
+        }
+    }
+
+    if(!changed) {
+        mutate_one_cell(board);
+    }
+}
+
+void apply_search_move(Array & board, int stagnant_steps) {
+    const int roll = random(100);
+    if(stagnant_steps < reheat_after / 2) {
+        if(roll < 75) {
+            mutate_one_cell(board);
+        } else if(roll < 95) {
+            mutate_swap_cells(board);
+        } else {
+            mutate_patch(board);
+        }
+    } else {
+        if(roll < 45) {
+            mutate_one_cell(board);
+        } else if(roll < 75) {
+            mutate_swap_cells(board);
+        } else {
+            mutate_patch(board);
+        }
+    }
+}
+
+void apply_refinement_move(Array & board) {
+    if(random(100) < 70) {
+        mutate_one_cell(board);
+    } else {
+        mutate_swap_cells(board);
+    }
+}
+
+void local_improve(Array & board, Fitness & fitness) {
+    for(int round = 0; round < local_improvement_rounds; ++round) {
+        Array best_trial = board;
+        Fitness best_trial_fitness = fitness;
+        bool improved = false;
+
+        for(int probe = 0; probe < local_improvement_probes; ++probe) {
+            Array trial = board;
+            apply_refinement_move(trial);
+            const Fitness trial_fitness = evaluate(trial);
+            if(trial_fitness > best_trial_fitness) {
+                best_trial = move(trial);
+                best_trial_fitness = trial_fitness;
+                improved = true;
+            }
+        }
+
+        if(!improved) {
+            break;
+        }
+
+        board = move(best_trial);
+        fitness = best_trial_fitness;
+    }
+}
+
 void insert_into_elite_archive(const Array & board, const Fitness & fitness) {
     lock_guard <mutex> lock(state_lock);
 
@@ -79,6 +180,14 @@ Array elite_restart_board() {
 
     const int choices = min(static_cast <int> (elite_archive.size()), elite_restart_choices);
     return elite_archive[random(choices)].board;
+}
+
+Array restart_seed_board() {
+    if(random(100) < random_restart_percent) {
+        return random_board();
+    }
+
+    return elite_restart_board();
 }
 
 void publish_global_best(const Array & board, const Fitness & fitness) {
@@ -132,12 +241,19 @@ void search() {
 
     for(int iter = 0; iter < iterations_per_thread; ++iter) {
         Array candidate = current;
-        mutate_one_cell(candidate);
+        apply_search_move(candidate, stagnant_steps);
 
-        const Fitness candidate_fitness = evaluate(candidate);
-        if(update(annealing_value(current_fitness), annealing_value(candidate_fitness), temperature)) {
+        Fitness candidate_fitness = evaluate(candidate);
+        const Fitness previous_fitness = current_fitness;
+        if(update(annealing_value(previous_fitness), annealing_value(candidate_fitness), temperature)) {
             current = move(candidate);
             current_fitness = candidate_fitness;
+
+            if(current_fitness >= previous_fitness
+                && (current_fitness.prefix_score > previous_fitness.prefix_score
+                    || stagnant_steps >= reheat_after / 2)) {
+                local_improve(current, current_fitness);
+            }
         }
 
         if(current_fitness > local_best_fitness) {
@@ -152,11 +268,12 @@ void search() {
 
         temperature = max(minimum_temperature, temperature * cooling_rate);
         if(stagnant_steps >= reheat_after) {
-            current = elite_restart_board();
+            current = restart_seed_board();
             for(int mutation = 0; mutation < elite_restart_mutations; ++mutation) {
-                mutate_one_cell(current);
+                apply_search_move(current, reheat_after);
             }
             current_fitness = evaluate(current);
+            local_improve(current, current_fitness);
             if(current_fitness > local_best_fitness) {
                 local_best = current;
                 local_best_fitness = current_fitness;

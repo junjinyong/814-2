@@ -168,6 +168,12 @@ The corresponding readable number is the decimal integer represented by that dig
   - the current elite archive capacity is `16`
   - local-best improvements are inserted into the archive
   - after stagnation, a thread now restarts from a lightly perturbed elite board instead of only reheating around its own local best
+- Stage 4 of the roadmap is implemented:
+  - the main move set now mixes one-cell mutation, swap mutation, and small patch mutation
+  - the move schedule is now adaptive: cheap one-cell moves dominate early, while swap/patch moves are used more during stagnation
+  - archive-based restarts now use the expanded move set for larger perturbations
+  - restart seeding now mixes elite-based restarts with occasional full random restarts for diversity
+  - short greedy local improvement is now reserved for promising accepted candidates and restart seeds, rather than every candidate
 - The baseline search is currently a finite-run local simulated annealing style search with local reheating after stagnation.
 - `Random.cpp` now uses thread-local RNG state, which avoids the previous shared-generator race.
 - `main.cpp` currently prints the final best score and board after all worker threads finish.
@@ -175,6 +181,9 @@ The corresponding readable number is the decimal integer represented by that dig
 - A short stage 2 smoke run showed repeated global-best improvements with unchanged `prefix_score` but improved secondary metrics, confirming that the richer fitness is actively affecting search decisions.
 - A longer user-run of the stage 2 solver on 10 threads reached a final best score of `3565` with `frontier_hits=247` and `cover_9999=9571`, a substantial improvement over the stage 1 baseline.
 - A short stage 3 smoke run built and ran successfully, showing continued monotone global-best updates under the archive-based restart policy.
+- A short stage 4 smoke run built and ran successfully, confirming that the expanded move set and local-improvement pass integrate cleanly with the archive-based solver.
+- After tuning, the stage 4 solver still built and ran successfully with the cheaper default move policy and conditional local improvement.
+- A user-run after the stage 4 tuning reached `3676` substantially faster than the pre-tuning stage 4 version, indicating that cheap-default moves plus conditional heavy refinement is an effective policy and should be preserved unless stronger evidence appears.
 
 ## Open Questions To Track
 
