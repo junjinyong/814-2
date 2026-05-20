@@ -1,6 +1,8 @@
 #include <algorithm>
+#include <chrono>
 #include <iostream>
 #include <mutex>
+#include <numeric>
 #include <thread>
 #include <vector>
 
@@ -15,8 +17,7 @@ namespace {
 constexpr int rows = 8;
 constexpr int cols = 14;
 constexpr int digits = 10;
-constexpr int iterations_per_thread = 30000;
-constexpr int reheat_after = 2000;
+constexpr int reheat_after = 8000;
 constexpr int elite_archive_capacity = 16;
 constexpr int elite_restart_choices = 12;
 constexpr int elite_restart_mutations = 6;
@@ -35,12 +36,15 @@ constexpr int immigrant_percent_progress = 3;
 constexpr int immigrant_percent_mid_stagnation = 8;
 constexpr int immigrant_percent_high_stagnation = 16;
 constexpr int migration_pool_capacity = 16;
-constexpr int migration_interval = 600;
-constexpr int migration_import_count = 2;
+constexpr int migration_interval = 2400;
+constexpr int migration_import_count = 1;
 constexpr int migration_import_choices = 8;
-constexpr int newborn_tenure_progress = 4;
-constexpr int newborn_tenure_mid_stagnation = 8;
-constexpr int newborn_tenure_high_stagnation = 12;
+constexpr int newborn_tenure_progress = 6;
+constexpr int newborn_tenure_mid_stagnation = 12;
+constexpr int newborn_tenure_high_stagnation = 18;
+constexpr int newborn_tenure_score_divisor = 700;
+constexpr int newborn_tenure_score_bonus_cap = 12;
+constexpr int newborn_tenure_total_cap = 30;
 constexpr double exploration_temperature_progress = 0.20;
 constexpr double exploration_temperature_mid_stagnation = 0.60;
 constexpr double exploration_temperature_high_stagnation = 1.20;
@@ -65,6 +69,7 @@ Array global_best_solution(rows, vector <int> (cols, 0));
 Fitness global_best_fitness;
 vector <EliteEntry> elite_archive;
 vector <MigrantEntry> migration_pool;
+chrono::steady_clock::time_point run_deadline = chrono::steady_clock::time_point::max();
 
 void publish_global_best(const Array & board, const Fitness & fitness);
 
@@ -135,23 +140,94 @@ void mutate_patch(Array & board) {
     }
 }
 
+int digit_macro_cycle_size_for(int stagnant_steps) {
+    const int roll = random(100);
+    if(stagnant_steps < reheat_after / 3) {
+        if(roll < 70) {
+            return 2;
+        }
+        if(roll < 95) {
+            return 3;
+        }
+        return 4;
+    }
+
+    if(stagnant_steps < (2 * reheat_after) / 3) {
+        if(roll < 35) {
+            return 2;
+        }
+        if(roll < 75) {
+            return 3;
+        }
+        return 4;
+    }
+
+    if(roll < 20) {
+        return 2;
+    }
+    if(roll < 60) {
+        return 3;
+    }
+    return 4;
+}
+
+void mutate_digit_permutation(Array & board, int cycle_size) {
+    vector <int> pool(digits);
+    iota(pool.begin(), pool.end(), 0);
+    for(int idx = 0; idx < cycle_size; ++idx) {
+        const int pick = idx + random(digits - idx);
+        swap(pool[idx], pool[pick]);
+    }
+
+    int mapping[digits];
+    for(int digit = 0; digit < digits; ++digit) {
+        mapping[digit] = digit;
+    }
+    for(int idx = 0; idx < cycle_size; ++idx) {
+        mapping[pool[idx]] = pool[(idx + 1) % cycle_size];
+    }
+
+    bool changed = false;
+    for(int i = 0; i < rows; ++i) {
+        for(int j = 0; j < cols; ++j) {
+            const int mapped_digit = mapping[board[i][j]];
+            if(mapped_digit != board[i][j]) {
+                board[i][j] = mapped_digit;
+                changed = true;
+            }
+        }
+    }
+
+    if(!changed) {
+        mutate_one_cell(board);
+    }
+}
+
+void mutate_digit_macro(Array & board, int stagnant_steps) {
+    mutate_digit_permutation(board, digit_macro_cycle_size_for(stagnant_steps));
+}
+
 void apply_search_move(Array & board, int stagnant_steps) {
     const int roll = random(100);
     if(stagnant_steps < reheat_after / 2) {
-        if(roll < 75) {
+        if(roll < 70) {
             mutate_one_cell(board);
-        } else if(roll < 95) {
+        } else if(roll < 90) {
             mutate_swap_cells(board);
-        } else {
+        } else if(roll < 95) {
             mutate_patch(board);
+        } else {
+            mutate_digit_macro(board, stagnant_steps);
         }
     } else {
-        if(roll < 45) {
+        if(roll < 35) {
             mutate_one_cell(board);
-        } else if(roll < 75) {
+        } else if(roll < 60) {
             mutate_swap_cells(board);
-        } else {
+        } else if(roll < 80) {
             mutate_patch(board);
+        } else {
+            mutate_digit_macro(board, stagnant_steps);
         }
     }
 }
@@ -265,14 +341,20 @@ int immigrant_percent_for(int stagnant_steps) {
     return immigrant_percent_high_stagnation;
 }
 
-int newborn_tenure_for(int stagnant_steps) {
+int newborn_tenure_for(int stagnant_steps, const Fitness & fitness) {
+    int base_tenure = newborn_tenure_progress;
     if(stagnant_steps < reheat_after / 3) {
-        return newborn_tenure_progress;
+        base_tenure = newborn_tenure_progress;
+    } else if(stagnant_steps < (2 * reheat_after) / 3) {
+        base_tenure = newborn_tenure_mid_stagnation;
+    } else {
+        base_tenure = newborn_tenure_high_stagnation;
     }
-    if(stagnant_steps < (2 * reheat_after) / 3) {
-        return newborn_tenure_mid_stagnation;
-    }
-    return newborn_tenure_high_stagnation;
+
+    const int score_bonus = min(newborn_tenure_score_bonus_cap,
+        max(0, fitness.prefix_score) / newborn_tenure_score_divisor);
+
+    return min(newborn_tenure_total_cap, base_tenure + score_bonus);
 }
 
 int crossover_percent_for(int stagnant_steps) {
@@ -341,7 +423,7 @@ vector <int> replaceable_tail_indices(const vector <Individual> & population) {
 void place_individual(vector <Individual> & population, int index, Array board, const Fitness & fitness, int stagnant_steps) {
     population[index] = {move(board), fitness, 0};
     if(index >= local_stable_keep) {
-        population[index].protected_turns = newborn_tenure_for(stagnant_steps);
+        population[index].protected_turns = newborn_tenure_for(stagnant_steps, fitness);
     }
 }
 
@@ -450,7 +532,30 @@ Individual make_seed_individual(bool use_restart_seed) {
 
 Individual make_immigrant_individual(int stagnant_steps) {
     const bool use_restart_seed = stagnant_steps >= reheat_after / 2 || random(100) < 40;
-    return make_seed_individual(use_restart_seed);
+    Individual immigrant = make_seed_individual(use_restart_seed);
+
+    int digit_macro_count = 0;
+    if(stagnant_steps < reheat_after / 3) {
+        if(random(100) < 35) {
+            digit_macro_count = 1;
+        }
+    } else if(stagnant_steps < (2 * reheat_after) / 3) {
+        digit_macro_count = 1;
+    } else {
+        digit_macro_count = 1 + random(2);
+    }
+
+    if(digit_macro_count == 0) {
+        return immigrant;
+    }
+
+    for(int iter = 0; iter < digit_macro_count; ++iter) {
+        mutate_digit_macro(immigrant.board, stagnant_steps);
+    }
+    immigrant.fitness = evaluate(immigrant.board);
+    local_improve(immigrant.board, immigrant.fitness);
+    immigrant.protected_turns = 0;
+    return immigrant;
 }
 
 void export_migrant(const Individual & individual, size_t source_tag) {
@@ -610,6 +715,14 @@ Array best_solution_snapshot() {
     return global_best_solution;
 }
 
+void set_run_time_budget(chrono::seconds budget) {
+    run_deadline = chrono::steady_clock::now() + budget;
+}
+
+bool time_budget_expired() {
+    return chrono::steady_clock::now() >= run_deadline;
+}
+
 void search() {
     const size_t thread_tag = hash <thread::id> {}(this_thread::get_id());
     vector <Individual> population;
@@ -626,7 +739,8 @@ void search() {
     Fitness local_best_fitness = population.front().fitness;
     int stagnant_steps = 0;
 
-    for(int iter = 0; iter < iterations_per_thread; ++iter) {
+    long long iter = 0;
+    while(!time_budget_expired()) {
         sort_population(population);
         age_population(population);
         Array candidate;
@@ -718,6 +832,8 @@ void search() {
             }
             stagnant_steps = 0;
         }
+
+        ++iter;
     }
 }
 

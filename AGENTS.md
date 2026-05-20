@@ -82,7 +82,7 @@ Current interpretation:
 - This is an early C++ prototype for generating and evaluating candidate boards.
 - The repository already contains search and evaluation code, but future agents should not assume it is correct just because it exists.
 - Before editing, check for local uncommitted changes and work around them carefully.
-- Local IDE state and build artifacts such as `.idea/`, `build/`, `cmake-build-*/`, `.agents/`, and `.codex/` should remain ignored rather than committed.
+- Local IDE state, research scratch folders, and build artifacts such as `.idea/`, `build/`, `cmake-build-*/`, `.agents/`, `.codex/`, and `hints/` should remain ignored rather than committed.
 
 ## Problem Overview
 
@@ -182,13 +182,18 @@ The corresponding readable number is the decimal integer represented by that dig
   - crossover is currently patch/row-band style and remains strictly thread-local
   - crossover is now adaptive: mutation dominates during progress, while crossover becomes more frequent only after stagnation builds up
   - a shared migration pool now allows periodic export/import of strong individuals across thread-local populations
+  - the move set now also includes a global digit-permutation macro mutation with `2`-, `3`-, and `4`-cycle variants, which preserve board geometry while remapping digit semantics
 - The current baseline search is a finite-run steady-state local-population memetic evolutionary search with archive-assisted refresh and migration.
+- The current default runner is configured for long experiments:
+  - the stopping condition is now wall-clock based rather than a fixed iteration cap
+  - `main.cpp` currently sets a default time budget of `3600` seconds
+  - the current long-run tuning also makes reheat/migration less eager than before (`reheat_after=8000`, `migration_interval=2400`, `migration_import_count=1`)
 - The current stage 5 pool policy is tiered:
   - the strongest `local_stable_keep` individuals are protected from probabilistic churn
   - the remaining tail acts as an exchangeable exploration pool
   - exploratory candidates can replace tail members through a diversity-biased probabilistic admission rule using `annealing_value()` and `Random.cpp::update()`
   - regular immigrant candidates from restart-seeded or random boards can now enter the local population even when they are not produced by parent-based mutation/crossover
-  - newly inserted tail candidates now receive a short tenure (`protected_turns`) during which normal tail replacement, migration, and refresh avoid evicting them immediately
+  - newly inserted tail candidates now receive a score-aware tenure (`protected_turns`) during which normal tail replacement, migration, and refresh avoid evicting them immediately
 - The current main search loop is therefore hybrid:
   - elite/stable slots are still managed by mostly elitist evolutionary replacement
   - only the exchangeable tail currently uses SA-like probabilistic admission
@@ -206,12 +211,33 @@ The corresponding readable number is the decimal integer represented by that dig
 - A short smoke run after adding crossover to stage 5 built and ran successfully, confirming that crossover-based offspring integrate cleanly with the local-population solver.
 - A full user-run of the current stage 5 crossover version finished at `3064`, which is substantially worse than the tuned stage 4 result of `3676`. The current crossover design should therefore be treated as a regression until improved or disabled.
 - A short smoke run after tuning stage 5 crossover scheduling built and ran successfully, confirming that the adaptive crossover policy integrates cleanly with the current local-population solver.
-- A full user-run after tuning stage 5 crossover scheduling finished at `3305`. This is better than the previous `3064` stage 5 result, but it still underperforms the tuned stage 4 result of `3676`, so the current stage 5 remains a net regression in end-to-end score.
+- A full user-run after tuning stage 5 crossover scheduling finished at `3305`. This is better than the previous `3064` stage 5 result, but it still underperformed the tuned stage 4 result of `3676`.
 - A short smoke run after adding migration built and ran successfully, confirming that migration integrates cleanly with the current stage 5 solver. Long-run migration performance is still unverified.
 - A full user-run after adding migration finished at `2964`, which is worse than both the pre-migration stage 5 result (`3305`) and the tuned stage 4 result (`3676`). The current migration design should therefore be treated as a harmful source of homogenization rather than a successful improvement.
 - A short smoke run after adding a protected stable core plus probabilistically replaceable exploration tail built and ran successfully. Long-run performance of this new admission policy is still unverified.
 - A full user-run after adding the protected stable core plus probabilistically replaceable exploration tail finished at `3468`, which is a large improvement over the immediately previous stage 5 variants (`3305` and `2964`) but still below the tuned stage 4 result of `3676`.
 - A short smoke run after adding newborn tenure for newly inserted exploration-tail individuals built and ran successfully. Long-run performance of the tenure policy is still unverified.
+- A full user-run after adding newborn tenure for newly inserted exploration-tail individuals finished at `3705`, which is the first verified stage 5 result to exceed the tuned stage 4 result of `3676`.
+- A short smoke run after adding the initial swap-only global digit macro mutation built and ran successfully.
+- A full user-run after adding the initial swap-only global digit macro mutation finished at `3488`, which is respectable but below the pre-macro stage 5 best of `3705`. That first macro-mutation attempt was therefore interesting but not clearly positive.
+- A short smoke run after extending the global digit macro mutation to `2`-, `3`-, and `4`-cycle permutations built and ran successfully. Long-run performance of the stronger permutation version is still unverified.
+- User long runs after extending the global digit macro mutation to `2`-, `3`-, and `4`-cycle permutations still showed frequent plateauing in the low `3000`s (for example around `2977` and `3222`). Stronger global digit remapping alone does not appear sufficient to solve the late-stage local-optimum problem.
+- A short smoke run after lengthening tenure and making it depend on `prefix_score` built and ran successfully. Long-run performance of the stronger tenure policy is still unverified.
+- A short smoke run after switching to a 1-hour default time budget and backing off reheat/migration aggressiveness built and ran successfully.
+- A full user-run with the 1-hour wall-clock budget (`3600`s), relaxed reheat (`8000`), and lighter migration (`interval=2400`, `import_count=1`) finished at `3698` with `frontier_hits=251` and `cover_9999=9873`. This is slightly below the current best verified stage 5 result of `3705`, but close enough to suggest that the long-run configuration is at least reasonable rather than obviously harmful.
+- Current empirical evidence suggests that this problem is unlikely to admit a single mostly-greedy neighborhood path all the way to a strong final score. A more realistic strategy is staged search: exploit with cheap local moves while progress is steady, then escalate to stronger structural moves, and finally abandon or reseed the basin when the search signal becomes too flat.
+- Late-stage progress likely requires targeted repair moves aimed at the first few missing integers near the current prefix frontier, even if those moves are partially destructive to broader coverage. Broad coverage alone has repeatedly plateaued in the high-`9000` `cover_9999` / high-`240s` frontier regime without corresponding prefix breakthroughs.
+- A review of the local `hints/` notes found one normalized-source duplication: `hints/3.md` and `hints/8.md` both point to `https://blog.naver.com/jinhan814/222503772100` (one URL only adds a tracking query).
+- The most durable external-solution hints seen in `hints/` are:
+  - explicit objective switching, especially a coverage-primary phase for `1000..9999` or all 4-digit strings
+  - targeted repair for `T+1` / first-missing holes rather than only broad-coverage moves
+  - witness-usage / least-used-cell guidance for safer mutation targets
+  - a strong pure SA or DLAS-style baseline may be worth comparing against the current stage 5 evolutionary solver
+- The attached raw-source notes in `hints/*_raw.md` confirm several more specific external ideas:
+  - one successful line explicitly used `1000..9999` readable-count, not `1..9999`, as the alternate objective before switching back to prefix mode
+  - another successful line alternated objectives on very long horizons (`2e5` mutations in Python, later `1e6` after moving to C++)
+  - one Velog writeup reports a solved run using roughly `DB=200`, mutation count cap `8`, and about `3,000,000` permutation trials, starting from a previously found `7666`-point seed
+  - JusticeHui's raw note confirms useful repair details: direct `T+1` one-cell repair, witness-cell exclusion during local optimization, and a 10% fallback to unrestricted search to avoid over-pruning
 
 ## Open Questions To Track
 

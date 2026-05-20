@@ -1,14 +1,19 @@
 #include <iostream>
+#include <chrono>
 #include "Search.cpp"
 
 using namespace std;
 
 int main() {
+    constexpr int time_budget_seconds = 3600;
     const unsigned int num_logical_processors = thread::hardware_concurrency();
     const unsigned int num_threads = 10; // num_logical_processors >> 1;
     
     cout << "number of logical processors: " << num_logical_processors << endl;
     cout << "number of threads: " << num_threads << endl;
+    cout << "time budget (seconds): " << time_budget_seconds << endl;
+
+    set_run_time_budget(chrono::seconds(time_budget_seconds));
     
     vector <thread> threads (num_threads);
     
